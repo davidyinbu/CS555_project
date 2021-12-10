@@ -1,0 +1,85 @@
+---
+title: "Main"
+author: "Dawei Yin"
+date: "2021/12/9"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("stringr")
+library("tidyverse")
+library("car")
+library("dplyr")
+
+
+```
+
+
+
+```{r load}
+data <- read.csv("Levels_Fyi_Salary_Data.csv", encoding = 'UTF-8', stringsAsFactors = T)
+#clean data
+data$company <- tolower(str_remove_all(string = data$company, pattern = "[:blank:]"))
+
+#filter the company
+data$Race <- as.character(data$Race)
+data <- data%>%filter(company == "google"| company == "apple") %>% filter(Race != "Two Or More")
+data$Race <- as.factor(data$Race)
+data <- na.omit(data)
+
+
+
+
+```
+
+```{r anlysis}
+replace_outliers <- function(column) {
+  qnt <- quantile(column, probs=c(.25, .75))
+  upper_whisker <- 1.5 * IQR(column)
+  clean_data <- column
+  clean_data[column > (qnt[2] + upper_whisker)] <- NA
+  clean_data
+}
+
+
+
+
+#data overview
+
+#Asian_pop <- data%>%filter(Race_Asian == 1)
+#Black_pop <- data%>%filter(Race_Black == 1)
+#White_pop <- data%>%filter(Race_White == 1)
+#His_pop <- data%>%filter(Race_Hispanic == 1)
+
+no_out_data <- na.omit(data %>% group_by("Race") %>% 
+  mutate_at("totalyearlycompensation", replace_outliers))
+
+
+no_out_data%>%group_by(Race)%>%summarise(sd(totalyearlycompensation))
+
+
+
+
+#Class attribute, Asian or not
+
+
+g <- performance(data$Race_Asian ~ data$prop)
+plot(g)
+
+
+m <- aov(no_out_data$totalyearlycompensation ~ no_out_data$Race)
+summary(m)
+TukeyHSD(m)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
