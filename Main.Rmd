@@ -11,29 +11,35 @@ library("stringr")
 library("tidyverse")
 library("car")
 library("dplyr")
-
-
+#install.packages("emmeans")
+library(emmeans)
+options('contrasts')
 ```
 
 
 
-```{r load}
-data <- read.csv("Levels_Fyi_Salary_Data.csv", encoding = 'UTF-8', stringsAsFactors = T)
-#clean data
-data$company <- tolower(str_remove_all(string = data$company, pattern = "[:blank:]"))
-
-#filter the company
-data$Race <- as.character(data$Race)
-data <- data%>%filter(company == "google"| company == "apple") %>% filter(Race != "Two Or More")
-data$Race <- as.factor(data$Race)
+```{r load_data}
+data <- read.csv("Levels_Fyi_Salary_Data.csv", encoding = 'UTF-8')%>%
+  select(-c("level", "location", "tag", "otherdetails", "cityid", "dmaid","rowNumber"))
 data <- na.omit(data)
 
+#clean data
+data$company <- tolower(str_remove_all(string = data$company, pattern = "[:blank:]"))
+#data$title <- tolower(str_remove_all(string = data$title, pattern = "[:blank:]"))
+
+#filter the job title and race and change types
+data <- data%>%
+  filter(Race != "Two Or More" & gender != "Other")%>%
+  #mutate_at("Race_Asian", function(x) ifelse(x == 1, "Yes","No"))%>%
+  mutate_if(is.character, as.factor)%>%
+  filter(company =="microsoft"|company =="apple")
+  
 
 
 
 ```
 
-```{r anlysis}
+```{r analysis}
 replace_outliers <- function(column) {
   qnt <- quantile(column, probs=c(.25, .75))
   upper_whisker <- 1.5 * IQR(column)
@@ -42,44 +48,72 @@ replace_outliers <- function(column) {
   clean_data
 }
 
+#remove outliers of (totalyearlycompensation), gender
+no_out_data <- na.omit(data %>% group_by(Race) %>% 
+  mutate_if(is.numeric, replace_outliers))%>%mutate(count = 1)
+
+###check assumptions###
+#Rule of thumb: the largest sample standard deviation should be no more than twice as large as the smallest sample standard deviation.
+
+#original data distribution:
+no_out_data%>%group_by(Race)%>%summarise(sd = sd(totalyearlycompensation), count = sum(count),mean =mean(totalyearlycompensation))
+#visual represent:
+no_out_data%>%ggplot(aes(x = totalyearlycompensation)) + 
+  geom_histogram(aes(y=..density..), fill = "grey") + 
+  geom_density(alpha=0.25, fill = "blue", size = 1) + 
+  facet_grid(~Race)
+
+boxplot(no_out_data$totalyearlycompensation~no_out_data$Race, data=no_out_data, main="Race", xlab="race", 
+          ylab="totalyearlycompensation")
 
 
 
-#data overview
-
-#Asian_pop <- data%>%filter(Race_Asian == 1)
-#Black_pop <- data%>%filter(Race_Black == 1)
-#White_pop <- data%>%filter(Race_White == 1)
-#His_pop <- data%>%filter(Race_Hispanic == 1)
-
-no_out_data <- na.omit(data %>% group_by("Race") %>% 
-  mutate_at("totalyearlycompensation", replace_outliers))
-
-
-no_out_data%>%group_by(Race)%>%summarise(sd(totalyearlycompensation))
-
+#resample by strat
+#library(sampling)
+#set.seed(231)
+#st.size <- rep(92,4)
+#st <- strata(data = no_out_data,stratanames = c("Race"), size = st.size,
+#       method = "srswor",description = TRUE)
+#strata_data <- getdata(no_out_data,st)%>%mutate(count = 1)
+#strata data distribution:
+#strata_data%>%group_by(Race)%>%summarise(sd = sd(totalyearlycompensation), count = sum(count), mean =mean(totalyearlycompensation))
+#graph
+#strata_data%>%ggplot(aes(x = totalyearlycompensation)) + geom_histogram() + facet_grid(~Race)
 
 
 
-#Class attribute, Asian or not
 
 
-g <- performance(data$Race_Asian ~ data$prop)
-plot(g)
 
+
+#Class attribute
 
 m <- aov(no_out_data$totalyearlycompensation ~ no_out_data$Race)
 summary(m)
+qf(.95, df1=3, df2=1619)
+#Since 2.609275 > 21.5, it is significant
+
+#do pair wise t test
+pairwise.t.test(no_out_data$totalyearlycompensation, no_out_data$Race, p.adj="bonferroni") 
 TukeyHSD(m)
 
+
+
+
+#ANCOVA
+model = lm(no_out_data$totalyearlycompensation ~ no_out_data$Race+ no_out_data$gender+ no_out_data$Race* no_out_data$gender)
+summary(model)
+Anova(model,type=3)
+interaction.plot(no_out_data$Race, no_out_data$gender, no_out_data$totalyearlycompensation, col=1:5) 
+#the interaction is not significant at 0.10, then do the two way anova
+model_2w = lm(data$totalyearlycompensation ~ data$Race+ data$gender)
+
+m1.emm <- emmeans(model_2w, 'Race')
+pairs(m1.emm)
+
+
+
+m2.emm <- emmeans(model_2w, 'gender')
+pairs(m2.emm)
+
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
