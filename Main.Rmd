@@ -20,20 +20,18 @@ options('contrasts')
 
 ```{r load_data}
 data <- read.csv("Levels_Fyi_Salary_Data.csv", encoding = 'UTF-8')%>%
-  select(-c("level", "location", "tag", "otherdetails", "cityid", "dmaid","rowNumber"))
+  select(-c("level", "location", "tag", "otherdetails", "cityid", "dmaid","rowNumber", "timestamp"))
 data <- na.omit(data)
 
 #clean data
 data$company <- tolower(str_remove_all(string = data$company, pattern = "[:blank:]"))
-#data$title <- tolower(str_remove_all(string = data$title, pattern = "[:blank:]"))
+
 
 #filter the job title and race and change types
 data <- data%>%
   filter(Race != "Two Or More" & gender != "Other")%>%
   #mutate_at("Race_Asian", function(x) ifelse(x == 1, "Yes","No"))%>%
-  mutate_if(is.character, as.factor)%>%
   filter(company =="microsoft"|company =="apple")
-  
 
 
 
@@ -48,72 +46,162 @@ replace_outliers <- function(column) {
   clean_data
 }
 
-#remove outliers of (totalyearlycompensation), gender
-no_out_data <- na.omit(data %>% group_by(Race) %>% 
-  mutate_if(is.numeric, replace_outliers))%>%mutate(count = 1)
+#remove outliers of (totalyearlycompensation), if necessary
+data_race <- data %>% 
+  #group_by(Race) %>% mutate_if(is.numeric, replace_outliers)%>% na.omit()%>% ungroup(Race)%>%
+  select(c("totalyearlycompensation", "company", "gender", "Race", "Education"))%>%
+  mutate(count = 1)%>%
+  mutate_if(is.character, as.factor)
+
+
+data_gender <- data %>% 
+  #group_by(gender) %>% mutate_if(is.numeric, replace_outliers)%>% na.omit()%>%ungroup(gender)%>%
+  select(c("totalyearlycompensation", "company", "gender", "Race", "Education"))%>%
+  mutate(count = 1)%>%
+  mutate_if(is.character, as.factor)
+
+#not delete outliers, since it is not extremelly skewed
+data_education <- data %>% 
+  #group_by(Education) %>% mutate_if(is.numeric, replace_outliers)%>% na.omit()%>%ungroup(Education)%>%
+  select(c("totalyearlycompensation", "company", "gender", "Race", "Education"))%>%
+  mutate(count = 1)%>%
+  mutate_if(is.character, as.factor)
+
+
+
+#
+data_final <- data_race
+
 
 ###check assumptions###
 #Rule of thumb: the largest sample standard deviation should be no more than twice as large as the smallest sample standard deviation.
+# data distribution by race:
+data_final%>%group_by(Race)%>%summarise(sd = sd(totalyearlycompensation), count = sum(count),mean =mean(totalyearlycompensation))
+# data distribution by gender:
+data_final%>%group_by(gender)%>%summarise(sd = sd(totalyearlycompensation), count = sum(count),mean =mean(totalyearlycompensation))
+# data distribution by Education:
+data_final%>%group_by(Education)%>%summarise(sd = sd(totalyearlycompensation), count = sum(count),mean =mean(totalyearlycompensation))
 
-#original data distribution:
-no_out_data%>%group_by(Race)%>%summarise(sd = sd(totalyearlycompensation), count = sum(count),mean =mean(totalyearlycompensation))
+
+
+
 #visual represent:
-no_out_data%>%ggplot(aes(x = totalyearlycompensation)) + 
+
+#1 race
+data_final%>%ggplot(aes(x = totalyearlycompensation)) + 
   geom_histogram(aes(y=..density..), fill = "grey") + 
   geom_density(alpha=0.25, fill = "blue", size = 1) + 
   facet_grid(~Race)
+#2 gender
+data_final%>%ggplot(aes(x = totalyearlycompensation)) + 
+  geom_histogram(aes(y=..density..), fill = "grey") + 
+  geom_density(alpha=0.25, fill = "blue", size = 1) + 
+  facet_grid(~gender)
+#3 edu
+data_final%>%ggplot(aes(x = totalyearlycompensation)) + 
+  geom_histogram(aes(y=..density..), fill = "grey") + 
+  geom_density(alpha=0.25, fill = "blue", size = 1) + 
+  facet_grid(~Education)
 
-boxplot(no_out_data$totalyearlycompensation~no_out_data$Race, data=no_out_data, main="Race", xlab="race", 
-          ylab="totalyearlycompensation")
 
-
-
-#resample by strat
-#library(sampling)
-#set.seed(231)
-#st.size <- rep(92,4)
-#st <- strata(data = no_out_data,stratanames = c("Race"), size = st.size,
-#       method = "srswor",description = TRUE)
-#strata_data <- getdata(no_out_data,st)%>%mutate(count = 1)
-#strata data distribution:
-#strata_data%>%group_by(Race)%>%summarise(sd = sd(totalyearlycompensation), count = sum(count), mean =mean(totalyearlycompensation))
-#graph
-#strata_data%>%ggplot(aes(x = totalyearlycompensation)) + geom_histogram() + facet_grid(~Race)
+#boxplot(data_final$totalyearlycompensation~data_final$Race, data=data_final, main="Race", xlab="race", 
+          #ylab="totalyearlycompensation")
 
 
 
+data_final <- data_final[,1:5]
+write.csv(data_final, "Dataset_cleaned.csv")
+
+```
 
 
-
-
-#Class attribute
-
-m <- aov(no_out_data$totalyearlycompensation ~ no_out_data$Race)
+```{r test}
+######### Anova test #######
+#test 1: Race mean
+m <- aov(data_final$totalyearlycompensation ~ data_final$Race)
 summary(m)
-qf(.95, df1=3, df2=1619)
-#Since 2.609275 > 21.5, it is significant
-
+qf(.95, df1=3, df2=2145)
+#Since 2.609051 < 15.01, it is significant
 #do pair wise t test
-pairwise.t.test(no_out_data$totalyearlycompensation, no_out_data$Race, p.adj="bonferroni") 
+pairwise.t.test(data_final$totalyearlycompensation, data_final$Race, p.adj="bonferroni") 
 TukeyHSD(m)
 
+#test 2: Education mean 
+m1 <- aov(data_final$totalyearlycompensation ~ data_final$Education)
+summary(m1)
+qf(.95, df1=4, df2=2144)
+#Since 2.376078 < 25.72, it is significant
+#do pair wise t test
+pairwise.t.test(data_final$totalyearlycompensation, data_final$Education, p.adj="bonferroni") 
+TukeyHSD(m1)
+
+#test 3: gender mean
+m2 <- aov(data_final$totalyearlycompensation ~ data_final$gender)
+summary(m2)
+qf(.95, df1=1, df2=2147)
+#Since 3.845794 < 19.49, it is significant
+#do pair wise t test
+pairwise.t.test(data_final$totalyearlycompensation, data_final$gender, p.adj="bonferroni") 
+TukeyHSD(m2)
 
 
 
-#ANCOVA
-model = lm(no_out_data$totalyearlycompensation ~ no_out_data$Race+ no_out_data$gender+ no_out_data$Race* no_out_data$gender)
+
+
+#2 way Race and gender
+model = lm(data_final$totalyearlycompensation ~ data_final$Race+ data_final$gender + data_final$Race* data_final$gender)
 summary(model)
 Anova(model,type=3)
-interaction.plot(no_out_data$Race, no_out_data$gender, no_out_data$totalyearlycompensation, col=1:5) 
+interaction.plot(data_final$Race, data_final$gender, data_final$totalyearlycompensation, col=1:2) 
 #the interaction is not significant at 0.10, then do the two way anova
-model_2w = lm(data$totalyearlycompensation ~ data$Race+ data$gender)
+model_2w = lm(data_final$totalyearlycompensation ~ data_final$Race+ data_final$gender)
 
 m1.emm <- emmeans(model_2w, 'Race')
 pairs(m1.emm)
 
 
 
-m2.emm <- emmeans(model_2w, 'gender')
-pairs(m2.emm)
+
+
+
+#2 way race and education
+model = lm(data_final$totalyearlycompensation ~ data_final$Race+ data_final$Education+ data_final$Race* data_final$Education)
+summary(model)
+Anova(model,type=3)
+interaction.plot(data_final$Race, data_final$Education, data_final$totalyearlycompensation, col=1:2) 
+
+
+
+#the interaction is  significant at 0.10, then do the stratify
+edu_lev <- data_final$Education
+Bachelor <- data_final[which(edu_lev == "Bachelor's Degree"),]%>%droplevels
+Highschool<- data_final[which(edu_lev == "Highschool"),]%>%droplevels
+Master<- data_final[which(edu_lev == "Master's Degree"),]%>%droplevels
+PhD <- data_final[which(edu_lev == "PhD"),]%>%droplevels
+Some_College<- data_final[which(edu_lev == "Some College"),]%>%droplevels
+
+
+
+mm1 <- aov(Bachelor$totalyearlycompensation~Bachelor$Race, data=Bachelor)
+summary(mm1)
+TukeyHSD(mm1)
+
+mm2 <- aov(Highschool$totalyearlycompensation~Highschool$Race, data=Highschool)
+summary(mm2)
+
+
+mm3 <- aov(Master$totalyearlycompensation~Master$Race, data=Master)
+summary(mm3)
+TukeyHSD(mm3)
+
+mm4 <- aov(PhD$totalyearlycompensation~PhD$Race, data=PhD)
+summary(mm4)
+
+
+mm5 <-aov(Some_College$totalyearlycompensation~Some_College$Race, data=Some_College)
+summary(mm5)
+
+
+
 
 ```
